@@ -741,11 +741,39 @@ def config_parser():
 
     return parser
 
+def preprocess_image_specularity(images):
+    result = []
+    t = 0.12 #t in (0,0.5)
+    for img in images: # also for i -> img[0,0,0,0] = first images, (0,0) r value
+        height,width = img.shape
+        img_mask = np.zeros(img.shape,img.dtype)
+
+        for j in range(1,height-1):
+            for i in range(1,width-1):
+                new_pixel_value = img[j,i,0]*img[j,i,1]*img[j,i,2]
+                #test for WU threshold
+
+                img_mask[j,i] =  1 if new_pixel_value> t else 0
+        result.append(img_mask)
+    
+        #save spec_masks in dir
+
+    return result
 
 def train():
 
     parser = config_parser()
     args = parser.parse_args()
+
+    #section 3.1
+    #1. Identification of Spec
+    #Pixels Mask with R*G*B
+    #2.Intensity Reduction
+    #luminance/intensity sub band
+    #-> multi-scale deomposition of intensity image L
+    #repitive edge-aware filtering - obtain intensity scale-space
+    #each rep: spatial extent for filter is doubled -> produces images of increasing smoothness
+    #
 
     # Load data
 
@@ -1086,7 +1114,7 @@ def train():
         for param_group in optimizer.param_groups:
             param_group['lr'] = new_lrate
 
-        ##### Refine depth maps and ray importance maps #####
+        ##### Refine depth maps and ray importance maps ##### section 2.1
         refinement_round = i // args.depth_refine_period
         if not args.no_depth_refine and depth_maps is not None and i % args.depth_refine_period == 0 and refinement_round <= args.depth_refine_rounds:
             print('Render RGB and depth maps for refinement...')

@@ -1,6 +1,6 @@
 expname = example_training
 basedir = ./logs
-datadir = /path/to/data/
+datadir = data1/cutting_tissues_twice
 dataset_type = llff
 
 factor = 1

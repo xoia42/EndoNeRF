@@ -7,9 +7,10 @@ modules = [
     CppExtension('torchsearchsorted.cpu',
                  ['src/cpu/searchsorted_cpu_wrapper.cpp']),
 ]
-
+print("goal?")
 # If nvcc is available, add the CUDA extension
 if CUDA_HOME:
+    print("goal!")
     modules.append(
         CUDAExtension('torchsearchsorted.cuda',
                       ['src/cuda/searchsorted_cuda_wrapper.cpp',
