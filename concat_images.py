@@ -44,6 +44,6 @@ for img_pre,img in zip(imgs_pre,imgs):
     new_img = get_concat_h(img_pre,img)
     new_imgs.append(new_img)
     filename= os.path.join(save_dir,f'{number(img_pre.filename)}_{number2(img.filename)}.png')
-    #imageio.imwrite(filename,new_img)
+    imageio.imwrite(filename,new_img)
 
 imageio.mimwrite(f'{save_dir}.cutting.mp4',new_imgs,quality=8)
