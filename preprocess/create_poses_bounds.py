@@ -35,10 +35,12 @@ def get_bounds_for_pictures(path):
 
 HEIGHT = 1024
 WIDTH = 1280
+# is retrieved from the camera_calibration.txt for the left camera (Camera-0-F: 1080.36 1080.18 // left camera x,y focal dist in pixels) taking the mean from the x,y focal dist
+# in EndoNeRF they assume that x,y dist is the same
 FOCAL = 1080.27
 D = 17
 
-path_to_pictures= "/dhc/home/franziska.hradilak/EndoNeRF/data1/robotic_surgery_preprocessed"
+path_to_pictures= "/dhc/home/<user_name>/EndoNeRF/data1/robotic_surgery_preprocessed"
 number_pictures = get_number_pictures(path_to_pictures)
 
 result=np.empty((number_pictures,D))
@@ -48,15 +50,16 @@ camera_vector = np.array([WIDTH,HEIGHT,FOCAL]).reshape(-1,1)
 
 matrix = np.concatenate((identity_matrix, camera_vector),axis=1)
 flat = matrix.flatten()
+
+# I checked that they use the min/max values from their depth maps as near/far bounds
 near, far = get_bounds_for_pictures(path_to_pictures)
-print(near)
-print(near.size)
-print(far)
+
 for n in range(number_pictures):
     result_vector = np.append(flat,[near[n],far[n]])
     result=np.vstack((result,result_vector))
 
 np.save(f"{path_to_pictures}/poses_bounds.npy",result)
+print("poses_bounds.npy saved to ",path_to_pictures")
 
 
 
