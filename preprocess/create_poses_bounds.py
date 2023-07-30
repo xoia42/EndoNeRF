@@ -1,7 +1,8 @@
-import numpy as np
-import glob
-import os
+import configargparse
 import cv2
+import glob
+import numpy as np
+import os
 
 
 def get_number_pictures(path):
@@ -40,7 +41,11 @@ D = 17
 HEIGHT = 1024
 WIDTH = 1280
 
-path_to_pictures= "/dhc/home/<user_name>/EndoNeRF/data1/robotic_surgery_preprocessed"
+parser = configargparse.ArgumentParser()
+parser.add_argument('--path', help='picture data path')
+args = parser.parse_args()
+
+path_to_pictures= args.path #"/dhc/home/<user_name>/EndoNeRF/data1/robotic_surgery_preprocessed"
 number_pictures = get_number_pictures(path_to_pictures)
 
 result=np.empty((number_pictures,D))
