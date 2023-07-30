@@ -9,12 +9,6 @@ def get_number_pictures(path):
     return len(glob.glob(f"{path}/images/*.png"))
 
 def get_bounds_for_pictures(path):
-    """
-    images = os.listdir(f"{path}/depth")
-    extention = ".png"
-    image_files = [images for images in images if any(images.lower().endswith(extention))]
-    sorted_images = sorted(image_files)
-    """
     near,far = [],[]
     image_files = os.listdir(f"{path}/depth/")
     print("N_image_files", len(image_files))
@@ -33,12 +27,18 @@ def get_bounds_for_pictures(path):
     return near,far
 
 
-HEIGHT = 1024
-WIDTH = 1280
-# is retrieved from the camera_calibration.txt for the left camera (Camera-0-F: 1080.36 1080.18 // left camera x,y focal dist in pixels) taking the mean from the x,y focal dist
-# in EndoNeRF they assume that x,y dist is the same
+
+""" 
+The poses_bounds.npy calculation instructions can be found here https://github.com/Fyusion/LLFF#using-your-own-poses-without-running-colmap
+
+The focal length is retrieved from the camera_calibration.txt for the left camera 
+(Camera-0-F: 1080.36 1080.18 // left camera x,y focal dist in pixels) taking the mean from the x,y focal dist.
+in EndoNeRF they assume that x,y dist is the same
+"""
 FOCAL = 1080.27
 D = 17
+HEIGHT = 1024
+WIDTH = 1280
 
 path_to_pictures= "/dhc/home/<user_name>/EndoNeRF/data1/robotic_surgery_preprocessed"
 number_pictures = get_number_pictures(path_to_pictures)
