@@ -500,7 +500,6 @@ def importance_sampling_ray(bins, weights, N_samples, det=False, pytest=False):
 def ray_sampling_importance_from_masks(masks):
     freq = (1.0 - masks).sum(0)
     p = freq / torch.sqrt((torch.pow(freq, 2)).sum())
-    #print(masks * (1.0 + p))
     return masks * (1.0 + p)
 
 def ray_sampling_importance_from_multiple_masks(masks, masks2):
@@ -511,12 +510,7 @@ def ray_sampling_importance_from_multiple_masks(masks, masks2):
     mask_is_zero =(masks==0).float()
     joint_masks = joint_masks *(1.0-mask_is_zero)
     return joint_masks
-    # Compute the normalized importance weights based on the combined frequencies
-   # p = (freq_masks + freq_mask2) / torch.sqrt((torch.pow(freq_masks + freq_mask2, 2)).sum())
-   # print(p)
-    # Scale the masks using the computed importance weights and combine them
-    #combined_mask = (masks * (1.0 + p)) + (masks2 * (1.0 + p))
-    #return combined_mask
+
 def ray_sampling_importance_only_edges(masks, masks2):
     joint_masks = masks2
     mask_is_zero =(masks==0).float()

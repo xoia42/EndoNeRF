@@ -783,31 +783,17 @@ def train():
     parser = config_parser()
     args = parser.parse_args()
 
-    #section 3.1
-    #1. Identification of Spec
-    #Pixels Mask with R*G*B
-    #2.Intensity Reductiosn
-    #luminance/intensity sub band
-    #-> multi-scale deomposition of intensity image L
-    #repitive edge-aware filtering - obtain intensity scale-space
-    #each rep: spatial extent for filter is doubled -> produces images of increasing smoothness
-    #
 
     # Load data
-    
+
 
     if args.dataset_type == 'blender':
         raise NotImplementedError
 
     elif args.dataset_type == 'llff':
-        images, masks, depth_maps,edges_masks, poses, times, bds, render_poses, render_times, i_test = load_llff_data(args.datadir, args.factor,
+        images, masks, depth_maps, poses, times, bds, render_poses, render_times, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75, spherify=args.spherify, fg_mask=args.use_fgmask, use_depth=args.use_depth,
                                                                   render_path=args.llff_renderpath, davinci_endoscopic=args.davinci_endoscopic)
-       
-        #edges_masks, _ = _preprocess_imgs(args.datadir, factor = args.factor,dir_name='edge_masks',check_fn=lambda f, i: f.endswith('JPG') or f.endswith('jpg') or f.endswith('png')
-        # ) # factor = 8 factor=8 downsamples original imgs by 8x
-        #print("images_shape", images.shape)
-        #print("edges_maks_shape", edges_masks.shape)
 
         hwf = poses[0,:3,-1]
         poses = poses[:,:3,:4]
@@ -906,7 +892,6 @@ def train():
 
             testsavedir = os.path.join(basedir, expname, 'renderonly_{}_{:06d}'.format('test' if args.render_test else ('path_%s' % args.llff_renderpath), start))
             os.makedirs(testsavedir, exist_ok=True)
-            #print('test poses shape', render_poses.shape)
 
             rgbs, _ = render_path(render_poses, render_times, hwf, args.chunk, args.volumetric_function, render_kwargs_test, gt_imgs=images,
                                   savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_gt, save_depth=True, near_far=(close_depth, inf_depth))
@@ -940,15 +925,10 @@ def train():
     poses = torch.Tensor(poses).to(device)
     times = torch.Tensor(times).to(device)
 
-    if edges_masks is not None:
-        edges_masks = torch.Tensor(edges_masks).to(device)
     if masks is not None:
         masks = torch.Tensor(masks).to(device)
         if nerf_model_extras['ray_importance_maps'] is None:
-            ray_importance_maps = ray_sampling_importance_from_masks(masks)  ##get_rays from mask
-            ray_importance_maps =ray_sampling_importance_only_edges(masks,edges_masks)
-            #ray_importance_maps = ray_sampling_importance_from_multiple_masks(masks,edges_masks)
-            #print("ray-importance-maps", ray_importance_maps)
+            ray_importance_maps = ray_sampling_importance_from_masks(masks)
         else:
             ray_importance_maps = torch.Tensor(nerf_model_extras['ray_importance_maps']).to(device)
     if depth_maps is not None:
@@ -957,9 +937,6 @@ def train():
         else:
             depth_maps = torch.Tensor(nerf_model_extras['depth_maps']).to(device)
 
- 
-
-    
     # if use_batching:
     #     rays_rgb = torch.Tensor(rays_rgb).to(device)
 
@@ -971,8 +948,6 @@ def train():
     if depth_maps is not None:
         print('depth shape', depth_maps.shape)
         print('close depth:', close_depth, 'inf depth:', inf_depth)
-    if edges_masks is not None:
-        print("edges masks shape", edges_masks.shape)
     N_iters = args.N_iter + 1
     print('Begin')
 
@@ -1016,8 +991,6 @@ def train():
                 ray_importance_map = ray_importance_maps[img_i]
             if depth_maps is not None:
                 depth_map = depth_maps[img_i]
-            if edges_masks is not None:
-                edges_mask = edges_masks[img_i]
 
             if N_rand is not None:
                 rays_o, rays_d = get_rays(H, W, focal, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
@@ -1040,47 +1013,13 @@ def train():
                     select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)  # (N_rand,)
                 elif masks is not None:
                     select_inds, _, cdf = importance_sampling_coords(ray_importance_map[coords[:, 0].long(), coords[:, 1].long()].unsqueeze(0), N_rand)
-                    #if args.edge_masks:
-                    #edge_inds = edge_sampling_coords(edge_importance_map[coords[:, 0].long(), coords[:, 1].long()].unsqueeze(0), N_rand)
                     select_inds = torch.max(torch.zeros_like(select_inds), select_inds)
                     select_inds = torch.min((coords.shape[0] - 1) * torch.ones_like(select_inds), select_inds)
                     select_inds = select_inds.squeeze(0)
                     
-
-                #print("coords",coords)
                 select_coords = coords[select_inds].long()  # (N_rand, 2)
-                
-
-                """
-                #only choose edges
-                white_pixel_coords = torch.nonzero(edges_mask, as_tuple=False)
-               # print("white_pixel_coords",white_pixel_coords)
-                # mask_e = torch.eq(select_coords,white_pixel_coords).all(-1)
-                #print("mask_e",mask_e)
-                select_coords = select_coords[:,None,:]
-
-                #common_coords=torch.where(select_coords in white_pixel_coords)
-                mask_e = torch.eq(select_coords,white_pixel_coords).all(-1)
-                common_coords = select_coords[mask_e.any(-1)]
-               # print("common-coords",common_coords)
-                select_coords = common_coords
-                select_coords = select_coords[:,0]
-                """
-
-                
-
-                #print("select_inds",select_inds)
-                #print("select_coords[:, 0]",select_coords[:, 0])
-                #print("select_coords[:, 1]",select_coords[:, 1])
-
                 rays_o = rays_o[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
-                ##rint("rayso",rays_o)
-               # print("rays_d",rays_d)
-                #print("rays_d_mod", rays_d[select_coords[:, 0][0], select_coords[:, 1][0]])
-                #print("rays_d_mod", rays_d[select_coords[:, 0][6], select_coords[:, 1][6]])
                 rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
-                #print("rayso",rays_d[0:30])
-                
                 batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 if depth_maps is not None:
@@ -1100,9 +1039,8 @@ def train():
                     mask_s = mask_s.unsqueeze(-1)
                 else:
                     mask_s = None
-    	
+
         #####  Core optimization loop  #####
-       # print("batch_rays",batch_rays)
         rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
