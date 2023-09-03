@@ -781,7 +781,7 @@ def train():
         raise NotImplementedError
 
     elif args.dataset_type == 'llff':
-        images, masks, depth_maps, poses, times, bds, render_poses, render_times, i_test = load_llff_data(args.datadir, args.factor,
+        images, masks, depth_maps, edges_masks,poses, times, bds, render_poses, render_times, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75, spherify=args.spherify, fg_mask=args.use_fgmask, use_depth=args.use_depth,
                                                                   render_path=args.llff_renderpath, davinci_endoscopic=args.davinci_endoscopic)
 
@@ -915,10 +915,16 @@ def train():
     images = torch.Tensor(images).to(device)
     poses = torch.Tensor(poses).to(device)
     times = torch.Tensor(times).to(device)
+
+    if edges_masks is not None:
+        edges_masks = torch.Tensor(edges_masks).to(device)
     if masks is not None:
         masks = torch.Tensor(masks).to(device)
         if nerf_model_extras['ray_importance_maps'] is None:
             ray_importance_maps = ray_sampling_importance_from_masks(masks)
+
+            ray_importance_maps =ray_sampling_importance_only_edges(masks,edges_masks)
+            #ray_importance_maps = ray_sampling_importance_from_multiple_masks(masks,edges_masks)
         else:
             ray_importance_maps = torch.Tensor(nerf_model_extras['ray_importance_maps']).to(device)
     if depth_maps is not None:
@@ -979,11 +985,14 @@ def train():
             target = images[img_i]
             pose = poses[img_i, :3, :4]
             frame_time = times[img_i]
+
             if masks is not None:
                 mask = masks[img_i]
                 ray_importance_map = ray_importance_maps[img_i]
             if depth_maps is not None:
                 depth_map = depth_maps[img_i]
+            if edges_masks is not None:
+                edges_mask = edges_masks[img_i]
 
             if N_rand is not None:
                 rays_o, rays_d = get_rays(H, W, focal, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
