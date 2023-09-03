@@ -196,8 +196,32 @@ def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True, fg
         # max_depth = np.percentile(depth_imgs, 99.9)
         # print('min depth:', min_depth, 'max depth:', max_depth)
     
+
+    edges_imgs = None
+    if True:
+        edges_files, _ = _preprocess_imgs(basedir, dir_name='edge_masks', factor=factor, width=width, height=height, check_fn=check_depthimg_fn)
+        
+       
+        if len(edges_files) != len(rgb_files):
+            print( 'Mismatch between rgb imgs {} and  imgs {} !!!!'.format(len(rgb_files), len(edges_files)))
+            return
+        
+        edges_imgs = [imread(f)/255.0 for f in edges_files]
+        #print("edges_imgs_shape", edges_imgs[0].shape)
+
+        if edges_imgs[0].shape[:2] != rgb_imgs[..., 0].shape[:2]:
+            print( 'Mismatch size between rgb imgs {} and edges imgs {} !!!!'.format(rgb_imgs[..., 0].shape[:2], edges_imgs[0].shape[:2]))
+            return
+        
+        edges_imgs = np.stack(edges_imgs, -1)
+        edges_imgs = 1.0 -edges_imgs
+        #print("shape", edges_imgs.shape)
+        # min_depth = np.percentile(depth_imgs, 3.0)
+        # max_depth = np.percentile(depth_imgs, 99.9)
+        # print('min depth:', min_depth, 'max depth:', max_depth)
+    
     print('Loaded image data', rgb_imgs.shape, poses[:,-1,0])
-    return poses, bds, rgb_imgs, mask_imgs, depth_imgs
+    return poses, bds, rgb_imgs, mask_imgs, depth_imgs, edges_imgs
 
 
 
@@ -361,7 +385,7 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
         bd_factor = None
 
 
-    poses, bds, imgs, masks, depth = _load_data(basedir, factor=factor, fg_mask=fg_mask, use_depth=use_depth) # factor=8 downsamples original imgs by 8x
+    poses, bds, imgs, masks, depth,edges = _load_data(basedir, factor=factor, fg_mask=fg_mask, use_depth=use_depth) # factor=8 downsamples original imgs by 8x
     print('Loaded', basedir, bds.min(), bds.max())
     
     # Correct rotation matrix ordering and move variable dim to axis 0
@@ -369,6 +393,7 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
         poses = np.concatenate([poses[:, 1:2, :], -poses[:, 0:1, :], poses[:, 2:, :]], 1)
     poses = np.moveaxis(poses, -1, 0).astype(np.float32)
     images = np.moveaxis(imgs, -1, 0).astype(np.float32)
+    edges = np.moveaxis(edges, -1, 0).astype(np.float32)
     bds = np.moveaxis(bds, -1, 0).astype(np.float32)
     if fg_mask:
         masks = np.moveaxis(masks, -1, 0).astype(np.float32)
@@ -457,7 +482,7 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
     times = np.linspace(0., 1., poses.shape[0])
     render_times = torch.linspace(0., 1., render_poses.shape[0])
 
-    return images, masks, depth, poses, times, bds, render_poses, render_times, i_test
+    return images, masks, depth,edges, poses, times, bds, render_poses, render_times, i_test
 
 
 
