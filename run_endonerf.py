@@ -1,6 +1,7 @@
 import os
 import imageio
 import time
+import math
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm, trange
 
@@ -9,8 +10,6 @@ from run_endonerf_helpers import *
 
 from load_blender import load_blender_data
 from load_llff import load_llff_data
-
-
 try:
     from apex import amp
 except ImportError:
@@ -80,7 +79,7 @@ def run_network(inputs, viewdirs, frame_time, fn, embed_fn, embeddirs_fn, embedt
     return outputs, position_delta
 
 
-def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
+def batchify_rays(rays_flat,volumetric_function, chunk=1024*32, **kwargs):
     """Render rays in smaller minibatches to avoid OOM.
     """
 
@@ -89,7 +88,7 @@ def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
     
     all_ret = {}
     for i in range(0, rays_flat.shape[0], chunk):
-        ret = render_rays(rays_flat[i:i+chunk], **kwargs)
+        ret = render_rays(rays_flat[i:i+chunk],volumetric_function=volumetric_function, **kwargs)
         for k in ret:
             if k not in all_ret:
                 all_ret[k] = []
@@ -99,7 +98,7 @@ def batchify_rays(rays_flat, chunk=1024*32, **kwargs):
     return all_ret
 
 
-def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
+def render(H, W, focal, volumetric_function, chunk=1024*32, rays=None, c2w=None, ndc=True,
                   near=0., far=1., frame_time=None,
                   use_viewdirs=False, c2w_staticcam=None,
                   **kwargs):
@@ -174,7 +173,7 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
         rays = torch.cat([rays, viewdirs], -1)
 
     # Render and reshape
-    all_ret = batchify_rays(rays, chunk, **kwargs)
+    all_ret = batchify_rays(rays,volumetric_function, chunk, **kwargs)
     for k in all_ret:
         k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
         all_ret[k] = torch.reshape(all_ret[k], k_sh)
@@ -185,7 +184,7 @@ def render(H, W, focal, chunk=1024*32, rays=None, c2w=None, ndc=True,
     return ret_list + [ret_dict]
 
 
-def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=None, savedir=None,
+def render_path(render_poses, render_times, hwf, chunk, volumetric_function, render_kwargs, gt_imgs=None, savedir=None,
                 render_factor=0, save_also_gt=False, i_offset=0, save_depth=False, near_far=(0, 1)):
 
     H, W, focal = hwf
@@ -208,7 +207,7 @@ def render_path(render_poses, render_times, hwf, chunk, render_kwargs, gt_imgs=N
     disps = []
 
     for i, (c2w, frame_time) in enumerate(zip(tqdm(render_poses), render_times)):
-        rgb, disp, acc, _ = render(H, W, focal, chunk=chunk, c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
+        rgb, disp, acc, _ = render(H, W, focal, chunk=chunk, volumetric_function=volumetric_function,c2w=c2w[:3,:4], frame_time=frame_time, **render_kwargs)
         rgbs.append(rgb.cpu().numpy())
         disps.append(disp.cpu().numpy())
 
@@ -381,7 +380,7 @@ def create_nerf(args):
     return render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer, extras
 
 
-def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
+def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False, volumetric_function="exp"):
     """Transforms model's predictions to semantically meaningful values.
     Args:
         raw: [num_rays, num_samples along ray, 4]. Prediction from model.
@@ -394,12 +393,29 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
         weights: [num_rays, num_samples]. Weights assigned to each sampled color.
         depth_map: [num_rays]. Estimated distance to object.
     """
-    raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
+    
+  
 
     dists = z_vals[...,1:] - z_vals[...,:-1]
-    dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[...,:1].shape)], -1)  # [N_rays, N_samples]
+    dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[...,:1].shape)], -1)  #[N_rays, N_samples]
 
     dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
+
+
+    if volumetric_function=="exp":
+        raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)  ##equation 3
+    elif volumetric_function=="weighted_gaussian":
+        raw2alpha= lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-((-act_fn(raw)*dists)-torch.mean((-act_fn(raw)*dists)))**2/(2*torch.std((-act_fn(raw)*dists))**2))
+    elif volumetric_function =="gaussian":
+        raw2alpha= lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-torch.square(-act_fn(raw)*dists))
+    elif volumetric_function=="sqaure":    
+        raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.square(-act_fn(raw)*dists)
+    elif volumetric_function=="tan":
+        raw2alpha= lambda raw, dists, act_fn=F.relu: 1.-torch.tan(-act_fn(raw)*dists)
+    elif volumetric_function=="tan_h":
+        raw2alpha= lambda raw, dists, act_fn=F.relu: 1.-torch.tanh(-act_fn(raw)*dists)
+    elif volumetric_function=="tan_pi":
+        raw2alpha =lambda raw, dists, act_fn=F.relu: 1.-torch.tan(-act_fn(raw)*dists * torch.tensor(math.pi/2))
 
     rgb = torch.sigmoid(raw[...,:3])  # [N_rays, N_samples, 3]
     noise = 0.
@@ -413,7 +429,7 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
             noise = torch.Tensor(noise)
 
     alpha = raw2alpha(raw[...,3] + noise, dists)  # [N_rays, N_samples]
-    # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
+    ##equation 3
     weights = alpha * torch.cumprod(torch.cat([torch.ones((alpha.shape[0], 1)), 1.-alpha + 1e-10], -1), -1)[:, :-1]
     rgb_map = torch.sum(weights[...,None] * rgb, -2)  # [N_rays, 3]
 
@@ -423,8 +439,6 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
 
     if white_bkgd:
         rgb_map = rgb_map + (1.-acc_map[...,None])
-        # rgb_map = rgb_map + torch.cat([acc_map[..., None] * 0, acc_map[..., None] * 0, (1. - acc_map[..., None])], -1)
-
     return rgb_map, disp_map, acc_map, weights, depth_map
 
 
@@ -432,6 +446,7 @@ def render_rays(ray_batch,
                 network_fn,
                 network_query_fn,
                 N_samples,
+                volumetric_function,
                 retraw=False,
                 lindisp=False,
                 perturb=0.,
@@ -531,17 +546,17 @@ def render_rays(ray_batch,
 
         if N_importance <= 0:
             raw, position_delta = network_query_fn(pts, viewdirs, frame_time, network_fn)
-            rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+            rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest, volumetric_function=volumetric_function)
 
         else:
             if use_two_models_for_fine:
                 raw, position_delta_0 = network_query_fn(pts, viewdirs, frame_time, network_fn)
-                rgb_map_0, disp_map_0, acc_map_0, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+                rgb_map_0, disp_map_0, acc_map_0, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest, volumetric_function=volumetric_function)
 
             else:
                 with torch.no_grad():
                     raw, _ = network_query_fn(pts, viewdirs, frame_time, network_fn)
-                    _, _, _, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+                    _, _, _, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest, volumetric_function=volumetric_function)
 
             z_vals_mid = .5 * (z_vals[...,1:] + z_vals[...,:-1])
             z_samples = importance_sampling_ray(z_vals_mid, weights[...,1:-1], N_importance, det=(perturb==0.), pytest=pytest)
@@ -551,10 +566,12 @@ def render_rays(ray_batch,
     pts = rays_o[...,None,:] + rays_d[...,None,:] * z_vals[...,:,None] # [N_rays, N_samples + N_importance, 3]
     run_fn = network_fn if network_fine is None else network_fine
     raw, position_delta = network_query_fn(pts, viewdirs, frame_time, run_fn)
-    rgb_map, disp_map, acc_map, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest)
+    rgb_map, disp_map, acc_map, weights, _ = raw2outputs(raw, z_vals, rays_d, raw_noise_std, white_bkgd, pytest=pytest, volumetric_function=volumetric_function)
 
+   #print("rgb_map",rgb_map)
     ret = {'rgb_map' : rgb_map, 'disp_map' : disp_map, 'acc_map' : acc_map, 'z_vals' : z_vals,
            'position_delta' : position_delta}
+    #print("ret",ret)
     if retraw:
         ret['raw'] = raw
     if N_importance > 0:
@@ -620,6 +637,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
+    
 
     # rendering options
     parser.add_argument("--N_samples", type=int, default=64, 
@@ -654,7 +672,7 @@ def config_parser():
                         help='render the test set instead of render_poses path')
     parser.add_argument("--render_factor", type=int, default=0, 
                         help='downsampling factor to speed up rendering, set 4 or 8 for fast preview')
-
+    parser.add_argument("--volumetric_function",type=str, default="exp", help="function used for weights in volumetric rendering")
     # training trick options
     parser.add_argument("--precrop_iters", type=int, default=0,
                         help='number of steps to train on central crops')
@@ -768,7 +786,7 @@ def train():
     #section 3.1
     #1. Identification of Spec
     #Pixels Mask with R*G*B
-    #2.Intensity Reduction
+    #2.Intensity Reductiosn
     #luminance/intensity sub band
     #-> multi-scale deomposition of intensity image L
     #repitive edge-aware filtering - obtain intensity scale-space
@@ -776,14 +794,20 @@ def train():
     #
 
     # Load data
+    
 
     if args.dataset_type == 'blender':
         raise NotImplementedError
 
     elif args.dataset_type == 'llff':
-        images, masks, depth_maps, poses, times, bds, render_poses, render_times, i_test = load_llff_data(args.datadir, args.factor,
+        images, masks, depth_maps,edges_masks, poses, times, bds, render_poses, render_times, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75, spherify=args.spherify, fg_mask=args.use_fgmask, use_depth=args.use_depth,
                                                                   render_path=args.llff_renderpath, davinci_endoscopic=args.davinci_endoscopic)
+       
+        #edges_masks, _ = _preprocess_imgs(args.datadir, factor = args.factor,dir_name='edge_masks',check_fn=lambda f, i: f.endswith('JPG') or f.endswith('jpg') or f.endswith('png')
+        # ) # factor = 8 factor=8 downsamples original imgs by 8x
+        #print("images_shape", images.shape)
+        #print("edges_maks_shape", edges_masks.shape)
 
         hwf = poses[0,:3,-1]
         poses = poses[:,:3,:4]
@@ -882,9 +906,9 @@ def train():
 
             testsavedir = os.path.join(basedir, expname, 'renderonly_{}_{:06d}'.format('test' if args.render_test else ('path_%s' % args.llff_renderpath), start))
             os.makedirs(testsavedir, exist_ok=True)
-            print('test poses shape', render_poses.shape)
+            #print('test poses shape', render_poses.shape)
 
-            rgbs, _ = render_path(render_poses, render_times, hwf, args.chunk, render_kwargs_test, gt_imgs=images,
+            rgbs, _ = render_path(render_poses, render_times, hwf, args.chunk, args.volumetric_function, render_kwargs_test, gt_imgs=images,
                                   savedir=testsavedir, render_factor=args.render_factor, save_also_gt=save_gt, save_depth=True, near_far=(close_depth, inf_depth))
             print('Done rendering', testsavedir)
             imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(rgbs), fps=args.video_fps, quality=8)
@@ -915,10 +939,16 @@ def train():
     images = torch.Tensor(images).to(device)
     poses = torch.Tensor(poses).to(device)
     times = torch.Tensor(times).to(device)
+
+    if edges_masks is not None:
+        edges_masks = torch.Tensor(edges_masks).to(device)
     if masks is not None:
         masks = torch.Tensor(masks).to(device)
         if nerf_model_extras['ray_importance_maps'] is None:
-            ray_importance_maps = ray_sampling_importance_from_masks(masks)
+            ray_importance_maps = ray_sampling_importance_from_masks(masks)  ##get_rays from mask
+            ray_importance_maps =ray_sampling_importance_only_edges(masks,edges_masks)
+            #ray_importance_maps = ray_sampling_importance_from_multiple_masks(masks,edges_masks)
+            #print("ray-importance-maps", ray_importance_maps)
         else:
             ray_importance_maps = torch.Tensor(nerf_model_extras['ray_importance_maps']).to(device)
     if depth_maps is not None:
@@ -926,6 +956,8 @@ def train():
             depth_maps = torch.Tensor(depth_maps).to(device)
         else:
             depth_maps = torch.Tensor(nerf_model_extras['depth_maps']).to(device)
+
+ 
 
     
     # if use_batching:
@@ -939,7 +971,8 @@ def train():
     if depth_maps is not None:
         print('depth shape', depth_maps.shape)
         print('close depth:', close_depth, 'inf depth:', inf_depth)
-
+    if edges_masks is not None:
+        print("edges masks shape", edges_masks.shape)
     N_iters = args.N_iter + 1
     print('Begin')
 
@@ -949,7 +982,6 @@ def train():
     start = start + 1
     for i in trange(start, N_iters):
         torch.cuda.empty_cache()
-
         ##### Sample random ray batch #####
         if use_batching:
             raise NotImplementedError("Not implemented")
@@ -984,6 +1016,8 @@ def train():
                 ray_importance_map = ray_importance_maps[img_i]
             if depth_maps is not None:
                 depth_map = depth_maps[img_i]
+            if edges_masks is not None:
+                edges_mask = edges_masks[img_i]
 
             if N_rand is not None:
                 rays_o, rays_d = get_rays(H, W, focal, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
@@ -1006,13 +1040,47 @@ def train():
                     select_inds = np.random.choice(coords.shape[0], size=[N_rand], replace=False)  # (N_rand,)
                 elif masks is not None:
                     select_inds, _, cdf = importance_sampling_coords(ray_importance_map[coords[:, 0].long(), coords[:, 1].long()].unsqueeze(0), N_rand)
+                    #if args.edge_masks:
+                    #edge_inds = edge_sampling_coords(edge_importance_map[coords[:, 0].long(), coords[:, 1].long()].unsqueeze(0), N_rand)
                     select_inds = torch.max(torch.zeros_like(select_inds), select_inds)
                     select_inds = torch.min((coords.shape[0] - 1) * torch.ones_like(select_inds), select_inds)
                     select_inds = select_inds.squeeze(0)
                     
+
+                #print("coords",coords)
                 select_coords = coords[select_inds].long()  # (N_rand, 2)
+                
+
+                """
+                #only choose edges
+                white_pixel_coords = torch.nonzero(edges_mask, as_tuple=False)
+               # print("white_pixel_coords",white_pixel_coords)
+                # mask_e = torch.eq(select_coords,white_pixel_coords).all(-1)
+                #print("mask_e",mask_e)
+                select_coords = select_coords[:,None,:]
+
+                #common_coords=torch.where(select_coords in white_pixel_coords)
+                mask_e = torch.eq(select_coords,white_pixel_coords).all(-1)
+                common_coords = select_coords[mask_e.any(-1)]
+               # print("common-coords",common_coords)
+                select_coords = common_coords
+                select_coords = select_coords[:,0]
+                """
+
+                
+
+                #print("select_inds",select_inds)
+                #print("select_coords[:, 0]",select_coords[:, 0])
+                #print("select_coords[:, 1]",select_coords[:, 1])
+
                 rays_o = rays_o[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
+                ##rint("rayso",rays_o)
+               # print("rays_d",rays_d)
+                #print("rays_d_mod", rays_d[select_coords[:, 0][0], select_coords[:, 1][0]])
+                #print("rays_d_mod", rays_d[select_coords[:, 0][6], select_coords[:, 1][6]])
                 rays_d = rays_d[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
+                #print("rayso",rays_d[0:30])
+                
                 batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
                 if depth_maps is not None:
@@ -1032,8 +1100,9 @@ def train():
                     mask_s = mask_s.unsqueeze(-1)
                 else:
                     mask_s = None
-
+    	
         #####  Core optimization loop  #####
+       # print("batch_rays",batch_rays)
         rgb, disp, acc, extras = render(H, W, focal, chunk=args.chunk, rays=batch_rays, frame_time=frame_time,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
@@ -1279,7 +1348,7 @@ def train():
             print("Rendering video...")
             with torch.no_grad():
                 savedir = os.path.join(basedir, expname, 'frames_{}_{}_{:06d}_time/'.format(expname, args.llff_renderpath, i))
-                rgbs, disps = render_path(render_poses, render_times, hwf, args.chunk, render_kwargs_test, savedir=savedir)
+                rgbs, disps = render_path(render_poses, render_times, hwf, args.chunk, args.volumetric_function, render_kwargs_test, savedir=savedir)
             print('Done, saving', rgbs.shape, disps.shape)
             moviebase = os.path.join(basedir, expname, '{}_{}_{:06d}_'.format(expname, args.llff_renderpath, i))
             imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=args.video_fps, quality=8)
@@ -1297,7 +1366,7 @@ def train():
             print('Testing poses shape...', poses[i_test].shape)
             with torch.no_grad():
                 render_path(torch.Tensor(poses[i_test]).to(device), torch.Tensor(times[i_test]).to(device),
-                            hwf, args.chunk, render_kwargs_test, gt_imgs=torch.Tensor(images[i_test]).to(device), savedir=testsavedir)
+                            hwf, args.chunk,args.volumetric_function, render_kwargs_test, gt_imgs=torch.Tensor(images[i_test]).to(device), savedir=testsavedir)
             print('Saved test set')
 
         global_step += 1
