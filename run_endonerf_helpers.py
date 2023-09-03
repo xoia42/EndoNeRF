@@ -376,6 +376,7 @@ def hsv_to_rgb(h, s, v):
 
 
 # Ray helpers
+##
 def get_rays(H, W, focal, c2w):
     i, j = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H))  # pytorch's meshgrid has indexing='ij'
     i = i.t()
@@ -499,9 +500,34 @@ def importance_sampling_ray(bins, weights, N_samples, det=False, pytest=False):
 def ray_sampling_importance_from_masks(masks):
     freq = (1.0 - masks).sum(0)
     p = freq / torch.sqrt((torch.pow(freq, 2)).sum())
-
+    #print(masks * (1.0 + p))
     return masks * (1.0 + p)
 
+def ray_sampling_importance_from_multiple_masks(masks, masks2):
+    freq_masks = (1.0 - masks).sum(0)
+    p = freq_masks/ torch.sqrt((torch.pow(freq_masks, 2)).sum())
+    masks = masks*(1.0+p)
+    joint_masks = torch.maximum(masks, masks2)
+    mask_is_zero =(masks==0).float()
+    joint_masks = joint_masks *(1.0-mask_is_zero)
+    return joint_masks
+    # Compute the normalized importance weights based on the combined frequencies
+   # p = (freq_masks + freq_mask2) / torch.sqrt((torch.pow(freq_masks + freq_mask2, 2)).sum())
+   # print(p)
+    # Scale the masks using the computed importance weights and combine them
+    #combined_mask = (masks * (1.0 + p)) + (masks2 * (1.0 + p))
+    #return combined_mask
+def ray_sampling_importance_only_edges(masks, masks2):
+    joint_masks = masks2
+    mask_is_zero =(masks==0).float()
+    joint_masks = joint_masks *(1.0-mask_is_zero)
+    return joint_masks
+    # Compute the normalized importance weights based on the combined frequencies
+   # p = (freq_masks + freq_mask2) / torch.sqrt((torch.pow(freq_masks + freq_mask2, 2)).sum())
+   # print(p)
+    # Scale the masks using the computed importance weights and combine them
+    #combined_mask = (masks * (1.0 + p)) + (masks2 * (1.0 + p))
+    #return combined_mask
 
 grad_kernel_x = torch.Tensor([
         [1., 0, -1.],
