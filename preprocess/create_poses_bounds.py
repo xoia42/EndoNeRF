@@ -64,7 +64,7 @@ for n in range(number_pictures):
     result=np.vstack((result,result_vector))
 
 np.save(f"{path_to_pictures}/poses_bounds.npy",result)
-print("poses_bounds.npy saved to ",path_to_pictures")
+print("poses_bounds.npy saved to ",path_to_pictures)
 
 
 
