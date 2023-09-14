@@ -196,7 +196,6 @@ def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True, fg
         # max_depth = np.percentile(depth_imgs, 99.9)
         # print('min depth:', min_depth, 'max depth:', max_depth)
     
-
     edges_imgs = None
     if True:
         edges_files, _ = _preprocess_imgs(basedir, dir_name='edge_masks', factor=factor, width=width, height=height, check_fn=check_depthimg_fn)
@@ -219,6 +218,7 @@ def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True, fg
         # min_depth = np.percentile(depth_imgs, 3.0)
         # max_depth = np.percentile(depth_imgs, 99.9)
         # print('min depth:', min_depth, 'max depth:', max_depth)
+
     
     print('Loaded image data', rgb_imgs.shape, poses[:,-1,0])
     return poses, bds, rgb_imgs, mask_imgs, depth_imgs, edges_imgs
