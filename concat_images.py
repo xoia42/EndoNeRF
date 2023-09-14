@@ -10,36 +10,42 @@ def get_concat_h(im1, im2):
     dst.paste(im2, (im1.width, 0))
     return dst
 
-data_dir1 ="/dhc/home/franziska.hradilak/EndoNeRF/data1/cutting_tissues_twice_preprocessed/images"
-data_dir2 = "/dhc/home/franziska.hradilak/EndoNeRF/data1/cutting_tissues_twice/images"
-save_dir = "/dhc/home/franziska.hradilak/EndoNeRF/comparison_videos"
+
+data_dir1 ="/dhc/home/<>/EndoNeRF/logs/preprocessed_specularity_training/frames_preprocessed_specularity_training_fixidentity_100000_time/estim"
+data_dir2 = "/dhc/home/<>/EndoNeRF/logs/preprocessed_specularity_training_gaussian/frames_preprocessed_specularity_training_gaussian_fixidentity_100000_time/estim"
+save_dir = "/dhc/home/<>/EndoNeRF/comparison_videos/preprocessed_gaussian_pulling"
 imgs_pre=[]
 imgs=[]
 
-#TODO fix saving of preprocessed without D_
-#Todo create Video
 def number(filename):
     #return int(filename[1::])
     filename = os.path.basename(filename)
-    word,rest = filename.split('_')
-    number,ext = rest.split('.')
+    print(filename)
+    
+    number,ext = filename.split('.rgb')
+    print(number)
     return(int(number))
 
 def number2(filename):
     #return int(filename[1::])
     filename = os.path.basename(filename)
     #word,rest = filename.split('_')
-    number,ext = filename.split('.')
+    number,ext = filename.split('.rgb')
     return(int(number))
     
 for filename in sorted(glob.glob(f'{data_dir1}/*.png'), key=number):
+    print(filename)
     im=Image.open(filename)
     imgs_pre.append(im)
+    print(im)
 
 for filename in sorted(glob.glob(f'{data_dir2}/*.png'),key=number2):
     im=Image.open(filename)
     imgs.append(im)
+    print(im)
+
 new_imgs=[]
+
 for img_pre,img in zip(imgs_pre,imgs):
     new_img = get_concat_h(img_pre,img)
     new_imgs.append(new_img)
