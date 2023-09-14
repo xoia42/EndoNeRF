@@ -1,6 +1,6 @@
 # Neural Rendering for Stereo 3D Reconstruction of Deformable Tissues in Robotic Surgery
 
-<a> href="/pdfs/Report.pdf" class="image fit"><img src="images/report.jpg" alt=""></a>
+
 
 Implementation for MICCAI 2022 paper **[Neural Rendering for Stereo 3D Reconstruction of Deformable Tissues in Robotic Surgery](https://arxiv.org/abs/2206.15255)** by [Yuehao Wang](http://yuehaolab.com/), Yonghao Long, Siu Hin Fan, and [Qi Dou](http://www.cse.cuhk.edu.hk/~qdou/).
 
