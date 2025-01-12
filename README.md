@@ -11,5 +11,5 @@ Adjustments we made can be found in the run_endonerf.py, rund_endonerf_helpers.p
 
 + Preprocessing: Specularity removal (https://github.com/fu123456/SHIQ)
 + Alteration of ray sampling: taking edges into account
-+ Alteration of volume rendering fucntions from exp() to other (square etc.)
++ Alteration of volume rendering functions from exp() to other (square etc.)
 
