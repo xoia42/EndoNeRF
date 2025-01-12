@@ -5,7 +5,7 @@ A NeRF-based framework for Stereo Endoscopic Surgery Scene Reconstruction (EndoN
 
 **[\[Paper\]](https://arxiv.org/abs/2206.15255) [\[Website\]](https://med-air.github.io/EndoNeRF/) [\[Sample Dataset\]](https://forms.gle/1VAqDJTEgZduD6157)**
 
-For more information on our adjustments see the README.pdf.
+For more information on our adjustments see the [README.pdf](https://github.com/xoia42/EndoNeRF/blob/master/README.pdf).
 
 Adjustments we made can be found in the run_endonerf.py, rund_endonerf_helpers.py, load_llff, preprocessing folder and others. Our work focused on improving EndoNeRFs results in reconstrucction via:
 
